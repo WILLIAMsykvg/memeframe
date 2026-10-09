@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "memeframe": {
+      "command": "python",
+      "args": ["-m", "memeframe.mcp_server"],
+      "env": {
+        "MEMEFRAME_AGENT": "0"
+      }
+    }
+  }
+}

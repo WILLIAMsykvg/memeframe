@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>memeframe</title>
+  <style>
+    :root {
+      --bg: #f6f3ec;
+      --ink: #1c1915;
+      --muted: #6b645c;
+      --line: #e4dccf;
+      --card: #fffdf8;
+      --accent: #c2410c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    main { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px; }
+    header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; }
+    h1 { font-family: Palatino, "Palatino Linotype", "Songti SC", serif; font-size: 40px; line-height: 1; margin: 0; }
+    h1 span { color: var(--accent); }
+    .lang { border: 1px solid var(--ink); background: transparent; padding: 6px 10px; cursor: pointer; }
+    p.lead { max-width: 62ch; color: var(--muted); }
+    form.search, form.upload { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+    input, button { font: inherit; color: inherit; }
+    input[type="text"], input[type="search"] {
+      flex: 1 1 220px;
+      background: var(--card);
+      border: 1px solid var(--ink);
+      padding: 10px 12px;
+    }
+    button.primary { background: var(--ink); color: var(--bg); border: 1px solid var(--ink); padding: 10px 16px; cursor: pointer; }
+    .sources { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 20px; }
+    .sources button { border: 1px solid var(--line); background: var(--card); padding: 6px 10px; cursor: pointer; }
+    .sources button.on { border-color: var(--accent); color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    article { background: var(--card); border: 1px solid var(--line); }
+    article img { width: 100%; height: 180px; object-fit: cover; background: var(--bg); display: block; }
+    article div { padding: 10px 12px 14px; }
+    article h2 { font-size: 18px; margin: 0 0 4px; }
+    article p { margin: 0; color: var(--muted); font-size: 14px; }
+    .meta { margin-top: 8px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .note, .error { color: var(--muted); font-size: 14px; }
+    .error { color: var(--accent); }
+    section.upload { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 8px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>meme<span>frame</span></h1>
+      <button class="lang" id="lang" type="button">English</button>
+    </header>
+    <p class="lead" id="lead"></p>
+    <form class="search" id="search-form">
+      <input id="q" type="search" name="q">
+      <button class="primary" type="submit" id="search-btn"></button>
+    </form>
+    <div class="sources" id="sources"></div>
+    <p class="error" id="error" hidden></p>
+    <div class="grid" id="grid"></div>
+    <p class="note" id="note"></p>
+    <section class="upload">
+      <h2 id="upload-title"></h2>
+      <form class="upload" id="upload-form">
+        <input id="file" type="file" accept="image/*,.svg" required>
+        <input id="title" type="text">
+        <input id="tags" type="text">
+        <button class="primary" type="submit" id="upload-btn"></button>
+      </form>
+    </section>
+  </main>
+  <script>
+    const I18N = {
+      zh: {
+        lead: "按场景搜梗图。描述和向量在上传时写好，这次搜索不会再调用视觉模型。",
+        search: "搜索",
+        placeholder: "例如：画饼、社死、无语的猫",
+        uploadTitle: "上传到本地图库",
+        title: "标题，例如 无语的猫",
+        tags: "标签，用逗号分隔",
+        upload: "入库",
+        note: "起步包是原创占位图。远程 JSON 源没配置时不会参与搜索。",
+        empty: "没有匹配。换一种说法，或者先上传一张。",
+        lang: "English",
+        html: "zh"
+      },
+      en: {
+        lead: "Search memes by scene. Captions and embeddings are written at upload, so this search does not call a vision model.",
+        search: "Search",
+        placeholder: "Try: empty promise, awkward, speechless cat",
+        uploadTitle: "Add to the local library",
+        title: "Title, for example speechless cat",
+        tags: "Tags, separated by commas",
+        upload: "Index",
+        note: "The starter pack is original placeholder art. The HTTP JSON source stays out until you configure it.",
+        empty: "No match. Try another scene, or upload an image.",
+        lang: "中文",
+        html: "en"
+      }
+    };
+
+    const state = { lang: localStorage.getItem("memeframe-lang") || "zh", sources: [], selected: new Set() };
+    const text = (key) => I18N[state.lang][key];
+
+    function applyCopy() {
+      const copy = I18N[state.lang];
+      document.documentElement.lang = copy.html;
+      document.getElementById("lead").textContent = copy.lead;
+      document.getElementById("q").placeholder = copy.placeholder;
+      document.getElementById("search-btn").textContent = copy.search;
+      document.getElementById("upload-title").textContent = copy.uploadTitle;
+      document.getElementById("title").placeholder = copy.title;
+      document.getElementById("tags").placeholder = copy.tags;
+      document.getElementById("upload-btn").textContent = copy.upload;
+      document.getElementById("note").textContent = copy.note;
+      document.getElementById("lang").textContent = copy.lang;
+    }
+
+    function titleOf(meme) {
+      return state.lang === "en" && meme.title_en ? meme.title_en : meme.title;
+    }
+
+    function captionOf(meme) {
+      return state.lang === "en" && meme.caption_en ? meme.caption_en : meme.caption;
+    }
+
+    function renderSources() {
+      const box = document.getElementById("sources");
+      box.innerHTML = "";
+      state.sources.forEach((source) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = source.enabled ? source.name : source.name + " · off";
+        button.disabled = !source.enabled;
+        button.className = state.selected.has(source.id) ? "on" : "";
+        button.addEventListener("click", () => {
+          if (state.selected.has(source.id)) state.selected.delete(source.id);
+          else state.selected.add(source.id);
+          renderSources();
+        });
+        box.appendChild(button);
+      });
+    }
+
+    function renderMemes(memes) {
+      const grid = document.getElementById("grid");
+      grid.innerHTML = "";
+      if (!memes.length) {
+        const empty = document.createElement("p");
+        empty.className = "note";
+        empty.textContent = text("empty");
+        grid.appendChild(empty);
+        return;
+      }
+      memes.forEach((meme) => {
+        const card = document.createElement("article");
+        const img = document.createElement("img");
+        img.src = meme.url;
+        img.alt = titleOf(meme);
+        const body = document.createElement("div");
+        const heading = document.createElement("h2");
+        heading.textContent = titleOf(meme);
+        const caption = document.createElement("p");
+        caption.textContent = captionOf(meme);
+        const meta = document.createElement("p");
+        meta.className = "meta";
+        meta.textContent = meme.source_id + " · " + meme.score;
+        body.append(heading, caption, meta);
+        card.append(img, body);
+        grid.appendChild(card);
+      });
+    }
+
+    async function runSearch(query) {
+      const error = document.getElementById("error");
+      error.hidden = true;
+      const params = new URLSearchParams({ q: query || "" });
+      if (state.selected.size) params.set("sources", [...state.selected].join(","));
+      const response = await fetch("/api/search?" + params.toString());
+      const payload = await response.json();
+      if (!response.ok) {
+        error.hidden = false;
+        error.textContent = payload.detail || "search failed";
+        return;
+      }
+      if (payload.errors && Object.keys(payload.errors).length) {
+        error.hidden = false;
+        error.textContent = JSON.stringify(payload.errors);
+      }
+      renderMemes(payload.memes || []);
+    }
+
+    document.getElementById("lang").addEventListener("click", () => {
+      state.lang = state.lang === "zh" ? "en" : "zh";
+      localStorage.setItem("memeframe-lang", state.lang);
+      applyCopy();
+      runSearch(document.getElementById("q").value);
+    });
+
+    document.getElementById("search-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      runSearch(document.getElementById("q").value);
+    });
+
+    document.getElementById("upload-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = document.getElementById("error");
+      const body = new FormData();
+      body.append("file", document.getElementById("file").files[0]);
+      body.append("title", document.getElementById("title").value);
+      body.append("tags", document.getElementById("tags").value);
+      const response = await fetch("/api/upload", { method: "POST", body });
+      const payload = await response.json();
+      if (!response.ok) {
+        error.hidden = false;
+        error.textContent = payload.detail || "upload failed";
+        return;
+      }
+      document.getElementById("q").value = payload.title || "";
+      runSearch(payload.title || "");
+    });
+
+    applyCopy();
+    fetch("/api/sources").then((response) => response.json()).then((payload) => {
+      state.sources = payload.sources || [];
+      renderSources();
+      runSearch("");
+    });
+  </script>
+</body>
+</html>

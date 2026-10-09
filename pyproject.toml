@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memeframe"
+version = "0.1.0"
+description = "Bilingual meme search framework: multi-source registry, local uploads, ingest-time captions, MCP."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "memeframe contributors" }]
+dependencies = [
+  "mcp>=1.9.0",
+  "fastapi>=0.115.0",
+  "uvicorn>=0.32.0",
+  "httpx>=0.27.0",
+  "python-multipart>=0.0.12",
+]
+
+[project.scripts]
+memeframe = "memeframe.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+memeframe = ["web/*.html"]
