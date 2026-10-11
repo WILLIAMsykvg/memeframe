@@ -4,7 +4,7 @@ English · [中文说明](README.zh-CN.md)
 
 Meme search framework. It borrows the useful part of [o98k-ok/meme](https://github.com/o98k-ok/meme) — a source registry, concurrent fan-out, per-source errors, and MCP — and adds the pieces that project does not have: a local library, upload, and captions written once at ingest.
 
-Search itself stays cheap. A query does not call a vision model.
+Search itself stays cheap. A query does not call a vision model or an embedding API.
 
 ## What you can run today
 
@@ -59,13 +59,12 @@ memeframe reindex
 python -m unittest discover -s tests -v
 ```
 
-Without an API key, captions fall back to the title you typed and embeddings use a local hash of that text. Set a key only when you want a vision caption at upload time:
+Embeddings are always a local hash of the caption text, so library search stays offline even with an API key. Without a key, captions fall back to the title you typed. Set a key only when you want a vision caption at upload time (or optional query rewrite):
 
 ```powershell
 $env:MEMEFRAME_API_KEY = "your-key"
 $env:MEMEFRAME_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 $env:MEMEFRAME_CAPTION_MODEL = "qwen-vl-plus"
-$env:MEMEFRAME_EMBED_MODEL = "text-embedding-v3"
 ```
 
 Copy `.env.example` to `.env` if you would rather not export variables. Existing environment variables win.
@@ -110,12 +109,13 @@ If some images need a hotlink proxy, set `IMAGE_PROXY_URL` to a template contain
 | --- | --- | --- |
 | `MEMEFRAME_HOME` | `data` | SQLite file and uploads |
 | `MEMEFRAME_AGENT` | `0` | `1` rewrites a query before search |
-| `MEMEFRAME_API_KEY` | empty | Caption, embedding, and rewrite |
+| `MEMEFRAME_API_KEY` | empty | Caption and rewrite only |
 | `MEMEFRAME_BASE_URL` | DashScope compatible mode | OpenAI-compatible endpoint |
 | `MEMEFRAME_CAPTION_MODEL` | `qwen-vl-plus` | Upload only |
-| `MEMEFRAME_EMBED_MODEL` | `text-embedding-v3` | Upload and query text |
 | `MEMEFRAME_REWRITE_MODEL` | `qwen-turbo` | Only when the agent flag is on |
 | `MEMEFRAME_HTTP_SOURCE_URL` | empty | Enables the `http` source |
+| `MEMEFRAME_HTTP_SOURCE_HEADER` | empty | Optional `Header: value` for the HTTP source |
+| `MEMEFRAME_MAX_UPLOAD_BYTES` | `5242880` | Upload size limit |
 | `IMAGE_PROXY_URL` | empty | Remote image proxy template |
 | `MEMEFRAME_SOURCE_TIMEOUT` | `8` | Seconds for each source |
 

@@ -141,6 +141,27 @@ class MemeframeTest(unittest.TestCase):
         self.assertEqual(result.memes[0].id, first.id)
         self.assertTrue((Path(self.tmp.name) / "library" / first.filename).is_file())
 
+    def test_search_stays_local_even_with_api_key(self) -> None:
+        os.environ["MEMEFRAME_API_KEY"] = "sk-test-not-used-for-search"
+        keyed = build_context()
+        try:
+            self.assertIsInstance(keyed.embedder, HashEmbedder)
+            library = next(source for source in keyed.registry.list() if source.id == "library")
+            self.assertIsInstance(library.embedder, HashEmbedder)
+            payload = b"<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>"
+            meme = ingest_bytes(keyed, payload, "pie.svg", "画饼", "Empty promise", ["饼"])
+            result = search_memes(keyed, "画饼", ["library"], 1, 5)
+            self.assertEqual(result.memes[0].id, meme.id)
+        finally:
+            keyed.store.close()
+
+    def test_reject_extension_only_fake_image(self) -> None:
+        from memeframe.ingest import IngestError, detect_format
+
+        self.assertEqual(detect_format(b"not-an-image", "fake.png"), "")
+        with self.assertRaises(IngestError):
+            ingest_bytes(self.ctx, b"not-an-image", "fake.png", "假图", "", [])
+
     def test_proxy_rewrites_remote_urls_only(self) -> None:
         remote = Meme(
             id="1",
@@ -190,11 +211,15 @@ class MemeframeTest(unittest.TestCase):
             self.assertIn("memeframe", page.text)
             self.assertIn("搜索", page.text)
             self.assertIn("Search", page.text)
+            self.assertIn('id="title-en"', page.text)
+            self.assertIn("Copy URL", page.text)
             found = client.get("/api/search", params={"q": "画饼"})
             self.assertEqual(found.status_code, 200)
             self.assertTrue(any(item["id"] == "starter-pie" for item in found.json()["memes"]))
             rejected = client.post("/api/upload", files={"file": ("note.txt", b"hello", "text/plain")})
             self.assertEqual(rejected.status_code, 400)
+            fake = client.post("/api/upload", files={"file": ("fake.png", b"hello", "image/png")})
+            self.assertEqual(fake.status_code, 400)
             svg = client.get("/media/starter/starter-pie.svg")
             self.assertEqual(svg.status_code, 200)
             self.assertIn("画饼", svg.text)

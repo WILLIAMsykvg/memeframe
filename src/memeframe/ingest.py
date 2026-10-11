@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,7 +31,8 @@ def split_tags(raw: str) -> list[str]:
     return [part.strip() for part in _TAGS.split(raw) if part.strip()]
 
 
-def detect_format(data: bytes, filename: str) -> str:
+def detect_format(data: bytes, filename: str = "") -> str:
+    del filename
     if data.startswith(b"\x89PNG"):
         return "png"
     if data.startswith(b"\xff\xd8\xff"):
@@ -42,11 +44,6 @@ def detect_format(data: bytes, filename: str) -> str:
     head = data[:300].lstrip().lower()
     if head.startswith(b"<svg") or (head.startswith(b"<?xml") and b"<svg" in head):
         return "svg"
-    ext = Path(filename).suffix.lower().lstrip(".")
-    if ext == "jpeg":
-        return "jpg"
-    if ext in _MIME and head:
-        return ext
     return ""
 
 
@@ -69,7 +66,8 @@ def ingest_bytes(ctx: AppContext, data: bytes, filename: str, title: str, title_
     meme_id = uuid.uuid4().hex
     stored_name = f"{meme_id}.{image_format}"
     settings.library_dir.mkdir(parents=True, exist_ok=True)
-    (settings.library_dir / stored_name).write_bytes(data)
+    path = settings.library_dir / stored_name
+    path.write_bytes(data)
     meme = Meme(
         id=meme_id,
         title=resolved_title,
@@ -84,7 +82,17 @@ def ingest_bytes(ctx: AppContext, data: bytes, filename: str, title: str, title_
         filename=stored_name,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
-    ctx.store.insert(meme, ctx.embedder.embed_text(meme_text(meme)))
+    try:
+        ctx.store.insert(meme, ctx.embedder.embed_text(meme_text(meme)))
+    except sqlite3.IntegrityError:
+        path.unlink(missing_ok=True)
+        existing = ctx.store.get_by_sha(digest)
+        if existing:
+            return existing
+        raise IngestError("duplicate upload conflict") from None
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
     return meme
 
 

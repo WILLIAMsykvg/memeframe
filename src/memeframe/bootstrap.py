@@ -5,12 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from memeframe.config import Settings, get_settings
-from memeframe.providers import (
-    CompatibleCaptioner,
-    CompatibleEmbedder,
-    HashEmbedder,
-    RuleCaptioner,
-)
+from memeframe.providers import CompatibleCaptioner, HashEmbedder, RuleCaptioner
 from memeframe.sources import HttpJsonSource, LibrarySource, Registry, StarterPackSource
 from memeframe.store import Store
 
@@ -20,7 +15,7 @@ class AppContext:
     settings: Settings
     store: Store
     registry: Registry
-    embedder: HashEmbedder | CompatibleEmbedder
+    embedder: HashEmbedder
     captioner: RuleCaptioner | CompatibleCaptioner
 
 
@@ -28,14 +23,12 @@ def build_context(settings: Settings | None = None) -> AppContext:
     settings = settings or get_settings()
     settings.home.mkdir(parents=True, exist_ok=True)
     store = Store(settings.db_path)
-    fallback_embed = HashEmbedder()
-    fallback_caption = RuleCaptioner()
+    # Embeddings stay local so search never hits the network, even with an API key.
+    embedder = HashEmbedder()
     if settings.api_key:
-        embedder: HashEmbedder | CompatibleEmbedder = CompatibleEmbedder(settings, fallback_embed)
-        captioner: RuleCaptioner | CompatibleCaptioner = CompatibleCaptioner(settings, fallback_caption)
+        captioner: RuleCaptioner | CompatibleCaptioner = CompatibleCaptioner(settings, RuleCaptioner())
     else:
-        embedder = fallback_embed
-        captioner = fallback_caption
+        captioner = RuleCaptioner()
     registry = Registry()
     registry.register(LibrarySource(store, embedder))
     registry.register(StarterPackSource())

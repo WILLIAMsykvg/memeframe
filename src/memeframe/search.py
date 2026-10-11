@@ -37,7 +37,7 @@ def search_memes(
 
 
 def apply_proxy(meme: Meme, template: str) -> Meme:
-    if not template or "{URL}" not in template and "{SOURCE_URL}" not in template:
+    if not template or ("{URL}" not in template and "{SOURCE_URL}" not in template):
         return meme
     if not meme.url.startswith(("http://", "https://")):
         return meme

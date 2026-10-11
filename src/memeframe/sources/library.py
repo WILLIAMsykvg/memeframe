@@ -10,7 +10,7 @@ from memeframe.store import Store
 class LibrarySource(Source):
     id = "library"
     name = "本地图库 · Local library"
-    description = "上传时写入描述和向量。Search uses the stored caption, not a live vision call."
+    description = "上传时写入描述和本地向量。Search uses stored text; no network call."
     requires_auth = False
     enabled = True
 

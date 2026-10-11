@@ -4,7 +4,7 @@
 
 梗图搜索框架。多源并发、单个源失败不影响其他源、MCP，这几件来自 [o98k-ok/meme](https://github.com/o98k-ok/meme)。它没有的部分补在这里：本地图库、上传，以及只在入库时写一次的描述和向量。
 
-搜索本身保持便宜。一次查询不会调用视觉模型。
+搜索本身保持便宜。一次查询不会调用视觉模型，也不会打 embedding API。
 
 ## 现在就能跑的部分
 
@@ -59,13 +59,12 @@ memeframe reindex
 python -m unittest discover -s tests -v
 ```
 
-没有 API key 时，描述就用你填的标题，向量用这段文字的本地哈希。只有希望上传时让视觉模型写描述，才需要 key：
+向量始终是描述文字的本地哈希，所以即使填了 API key，图库搜索也不会上网。没有 key 时，描述就用你填的标题。只有希望上传时让视觉模型写描述（或打开查询改写），才需要 key：
 
 ```powershell
 $env:MEMEFRAME_API_KEY = "your-key"
 $env:MEMEFRAME_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 $env:MEMEFRAME_CAPTION_MODEL = "qwen-vl-plus"
-$env:MEMEFRAME_EMBED_MODEL = "text-embedding-v3"
 ```
 
 也可以把 `.env.example` 复制成 `.env`。已经存在的环境变量优先。
@@ -110,12 +109,13 @@ GET {MEMEFRAME_HTTP_SOURCE_URL}?q=猫&page=1&limit=10
 | --- | --- | --- |
 | `MEMEFRAME_HOME` | `data` | SQLite 和上传文件 |
 | `MEMEFRAME_AGENT` | `0` | 设为 `1` 时，搜索前先改写查询 |
-| `MEMEFRAME_API_KEY` | 空 | 描述、向量、改写 |
+| `MEMEFRAME_API_KEY` | 空 | 只用于描述和改写 |
 | `MEMEFRAME_BASE_URL` | 百炼兼容模式 | OpenAI 兼容接口 |
 | `MEMEFRAME_CAPTION_MODEL` | `qwen-vl-plus` | 只在上传时用 |
-| `MEMEFRAME_EMBED_MODEL` | `text-embedding-v3` | 上传和查询文本 |
 | `MEMEFRAME_REWRITE_MODEL` | `qwen-turbo` | 只在打开 Agent 时用 |
 | `MEMEFRAME_HTTP_SOURCE_URL` | 空 | 填了才启用 `http` 源 |
+| `MEMEFRAME_HTTP_SOURCE_HEADER` | 空 | HTTP 源可选 `Header: value` |
+| `MEMEFRAME_MAX_UPLOAD_BYTES` | `5242880` | 上传大小上限 |
 | `IMAGE_PROXY_URL` | 空 | 远程图片代理模板 |
 | `MEMEFRAME_SOURCE_TIMEOUT` | `8` | 每个源的超时秒数 |
 

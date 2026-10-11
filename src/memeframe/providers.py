@@ -80,7 +80,10 @@ class CompatibleEmbedder:
             vector = response.json()["data"][0]["embedding"]
             if not isinstance(vector, list) or not vector:
                 raise ValueError("empty embedding")
-            return Embedding(vector=[float(item) for item in vector], model=self.settings.embed_model)
+            return Embedding(
+                vector=l2_normalize([float(item) for item in vector]),
+                model=self.settings.embed_model,
+            )
         except (httpx.HTTPError, KeyError, ValueError, TypeError):
             return self.fallback.embed_text(text)
 

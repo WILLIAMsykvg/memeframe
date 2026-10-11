@@ -55,39 +55,48 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     ctx = build_context()
-    if args.command == "sources":
-        print(json.dumps([source.info() for source in ctx.registry.list()], ensure_ascii=False, indent=2))
-        return
-    if args.command == "reindex":
-        print(reindex(ctx))
-        return
-    if args.command == "upload":
-        from pathlib import Path
+    try:
+        if args.command == "sources":
+            print(json.dumps([source.info() for source in ctx.registry.list()], ensure_ascii=False, indent=2))
+            return
+        if args.command == "reindex":
+            print(reindex(ctx))
+            return
+        if args.command == "upload":
+            from pathlib import Path
 
-        file_path = Path(args.path)
-        if not file_path.is_file():
-            print("file not found / 找不到文件", file=sys.stderr)
-            sys.exit(1)
-        meme = ingest_bytes(
-            ctx,
-            file_path.read_bytes(),
-            file_path.name,
-            args.title,
-            args.title_en,
-            split_tags(args.tags),
-        )
-        print(json.dumps(meme.to_dict(), ensure_ascii=False, indent=2))
-        return
+            from memeframe.ingest import IngestError
 
-    ids = [item.strip() for item in args.sources.split(",") if item.strip()] or None
-    result = search_memes(ctx, args.query, ids, args.page, args.limit)
-    if result.rewritten_query:
-        print(f"rewritten / 改写: {result.rewritten_query}")
-    for meme in result.memes:
-        title = meme.title_en if meme.title_en else meme.title
-        print(f"{meme.score:.2f}  [{meme.source_id}] {meme.title} / {title}  {meme.url}")
-    if result.errors:
-        print(json.dumps(result.errors, ensure_ascii=False), file=sys.stderr)
+            file_path = Path(args.path)
+            if not file_path.is_file():
+                print("file not found / 找不到文件", file=sys.stderr)
+                sys.exit(1)
+            try:
+                meme = ingest_bytes(
+                    ctx,
+                    file_path.read_bytes(),
+                    file_path.name,
+                    args.title,
+                    args.title_en,
+                    split_tags(args.tags),
+                )
+            except IngestError as exc:
+                print(str(exc), file=sys.stderr)
+                sys.exit(1)
+            print(json.dumps(meme.to_dict(), ensure_ascii=False, indent=2))
+            return
+
+        ids = [item.strip() for item in args.sources.split(",") if item.strip()] or None
+        result = search_memes(ctx, args.query, ids, args.page, args.limit)
+        if result.rewritten_query:
+            print(f"rewritten / 改写: {result.rewritten_query}")
+        for meme in result.memes:
+            title = meme.title_en if meme.title_en else meme.title
+            print(f"{meme.score:.2f}  [{meme.source_id}] {meme.title} / {title}  {meme.url}")
+        if result.errors:
+            print(json.dumps(result.errors, ensure_ascii=False), file=sys.stderr)
+    finally:
+        ctx.store.close()
 
 
 def _configure_stdio() -> None:

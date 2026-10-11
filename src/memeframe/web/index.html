@@ -45,6 +45,14 @@
     article h2 { font-size: 18px; margin: 0 0 4px; }
     article p { margin: 0; color: var(--muted); font-size: 14px; }
     .meta { margin-top: 8px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .actions { margin-top: 10px; }
+    .actions button {
+      border: 1px solid var(--line);
+      background: transparent;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
     .note, .error { color: var(--muted); font-size: 14px; }
     .error { color: var(--accent); }
     section.upload { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 8px; }
@@ -70,6 +78,7 @@
       <form class="upload" id="upload-form">
         <input id="file" type="file" accept="image/*,.svg" required>
         <input id="title" type="text">
+        <input id="title-en" type="text">
         <input id="tags" type="text">
         <button class="primary" type="submit" id="upload-btn"></button>
       </form>
@@ -78,28 +87,34 @@
   <script>
     const I18N = {
       zh: {
-        lead: "按场景搜梗图。描述和向量在上传时写好，这次搜索不会再调用视觉模型。",
+        lead: "按场景搜梗图。描述和向量在上传时写好，这次搜索不会再调用网络模型。",
         search: "搜索",
         placeholder: "例如：画饼、社死、无语的猫",
         uploadTitle: "上传到本地图库",
-        title: "标题，例如 无语的猫",
+        title: "中文标题，例如 无语的猫",
+        titleEn: "英文标题，例如 Speechless cat",
         tags: "标签，用逗号分隔",
         upload: "入库",
         note: "起步包是原创占位图。远程 JSON 源没配置时不会参与搜索。",
         empty: "没有匹配。换一种说法，或者先上传一张。",
+        copy: "复制链接",
+        copied: "已复制",
         lang: "English",
         html: "zh"
       },
       en: {
-        lead: "Search memes by scene. Captions and embeddings are written at upload, so this search does not call a vision model.",
+        lead: "Search memes by scene. Captions and embeddings are written at upload, so this search does not call a network model.",
         search: "Search",
         placeholder: "Try: empty promise, awkward, speechless cat",
         uploadTitle: "Add to the local library",
-        title: "Title, for example speechless cat",
+        title: "Chinese title, for example 无语的猫",
+        titleEn: "English title, for example speechless cat",
         tags: "Tags, separated by commas",
         upload: "Index",
         note: "The starter pack is original placeholder art. The HTTP JSON source stays out until you configure it.",
         empty: "No match. Try another scene, or upload an image.",
+        copy: "Copy URL",
+        copied: "Copied",
         lang: "中文",
         html: "en"
       }
@@ -116,6 +131,7 @@
       document.getElementById("search-btn").textContent = copy.search;
       document.getElementById("upload-title").textContent = copy.uploadTitle;
       document.getElementById("title").placeholder = copy.title;
+      document.getElementById("title-en").placeholder = copy.titleEn;
       document.getElementById("tags").placeholder = copy.tags;
       document.getElementById("upload-btn").textContent = copy.upload;
       document.getElementById("note").textContent = copy.note;
@@ -128,6 +144,14 @@
 
     function captionOf(meme) {
       return state.lang === "en" && meme.caption_en ? meme.caption_en : meme.caption;
+    }
+
+    function absoluteUrl(url) {
+      try {
+        return new URL(url, window.location.origin).href;
+      } catch {
+        return url;
+      }
     }
 
     function renderSources() {
@@ -143,6 +167,7 @@
           if (state.selected.has(source.id)) state.selected.delete(source.id);
           else state.selected.add(source.id);
           renderSources();
+          runSearch(document.getElementById("q").value);
         });
         box.appendChild(button);
       });
@@ -171,7 +196,23 @@
         const meta = document.createElement("p");
         meta.className = "meta";
         meta.textContent = meme.source_id + " · " + meme.score;
-        body.append(heading, caption, meta);
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.textContent = text("copy");
+        copyBtn.addEventListener("click", async () => {
+          const link = absoluteUrl(meme.url);
+          try {
+            await navigator.clipboard.writeText(link);
+            copyBtn.textContent = text("copied");
+            setTimeout(() => { copyBtn.textContent = text("copy"); }, 1200);
+          } catch {
+            copyBtn.textContent = link;
+          }
+        });
+        actions.appendChild(copyBtn);
+        body.append(heading, caption, meta, actions);
         card.append(img, body);
         grid.appendChild(card);
       });
@@ -214,6 +255,7 @@
       const body = new FormData();
       body.append("file", document.getElementById("file").files[0]);
       body.append("title", document.getElementById("title").value);
+      body.append("title_en", document.getElementById("title-en").value);
       body.append("tags", document.getElementById("tags").value);
       const response = await fetch("/api/upload", { method: "POST", body });
       const payload = await response.json();
