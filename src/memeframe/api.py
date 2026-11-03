@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from memeframe.bootstrap import AppContext, build_context
 from memeframe.ingest import IngestError, ingest_bytes, split_tags
+from memeframe.library import delete_library_meme, library_file_exists, list_library
 from memeframe.search import search_memes
 from memeframe.sources import starter_by_id, svg_for
 
@@ -61,6 +62,22 @@ def create_app(ctx: AppContext | None = None) -> FastAPI:
         except IngestError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return meme.to_dict()
+
+    @app.get("/api/library")
+    def library() -> dict:
+        memes = []
+        for meme in list_library(app.state.ctx):
+            item = meme.to_dict()
+            item["on_disk"] = library_file_exists(app.state.ctx, meme)
+            memes.append(item)
+        return {"memes": memes}
+
+    @app.delete("/api/library/{meme_id}")
+    def delete_library(meme_id: str) -> dict:
+        meme = delete_library_meme(app.state.ctx, meme_id)
+        if meme is None:
+            raise HTTPException(status_code=404, detail="meme not found")
+        return {"ok": True, "id": meme.id}
 
     @app.get("/media/starter/{file_name}")
     def starter_media(file_name: str) -> Response:

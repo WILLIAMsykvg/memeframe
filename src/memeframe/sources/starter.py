@@ -79,7 +79,7 @@ def starter_memes() -> list[Meme]:
                 source_id="starter",
                 format="svg",
                 score=0.1,
-                created_at=f"2026-01-01T00:00:0{index}+00:00",
+                created_at=f"2026-01-01T00:00:{index:02d}+00:00",
             )
         )
     return memes

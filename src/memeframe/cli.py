@@ -32,7 +32,11 @@ def main(argv: list[str] | None = None) -> None:
     upload.add_argument("--tags", default="")
 
     sub.add_parser("sources", help="List sources / 列出数据源")
+    sub.add_parser("library", help="List uploaded memes / 列出本地图库")
     sub.add_parser("reindex", help="Rebuild embeddings from stored text / 按已有文字重建向量")
+
+    delete = sub.add_parser("delete", help="Delete one library meme / 删除本地图库中的一张")
+    delete.add_argument("id", help="Meme id / 图片 ID")
 
     serve = sub.add_parser("serve", help="Run the web app / 启动网页")
     serve.add_argument("--host", default="127.0.0.1")
@@ -58,6 +62,26 @@ def main(argv: list[str] | None = None) -> None:
     try:
         if args.command == "sources":
             print(json.dumps([source.info() for source in ctx.registry.list()], ensure_ascii=False, indent=2))
+            return
+        if args.command == "library":
+            from memeframe.library import list_library
+
+            print(
+                json.dumps(
+                    [meme.to_dict() for meme in list_library(ctx)],
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
+        if args.command == "delete":
+            from memeframe.library import delete_library_meme
+
+            meme = delete_library_meme(ctx, args.id)
+            if meme is None:
+                print("meme not found / 找不到这张图", file=sys.stderr)
+                sys.exit(1)
+            print(json.dumps({"ok": True, "id": meme.id}, ensure_ascii=False))
             return
         if args.command == "reindex":
             print(reindex(ctx))

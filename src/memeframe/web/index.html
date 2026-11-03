@@ -55,7 +55,9 @@
     }
     .note, .error { color: var(--muted); font-size: 14px; }
     .error { color: var(--accent); }
-    section.upload { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 8px; }
+    section.upload, section.library { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 8px; }
+    section.library h2, section.upload h2 { font-family: Palatino, "Palatino Linotype", "Songti SC", serif; font-size: 28px; }
+    .actions button.danger { border-color: var(--accent); color: var(--accent); }
   </style>
 </head>
 <body>
@@ -83,6 +85,11 @@
         <button class="primary" type="submit" id="upload-btn"></button>
       </form>
     </section>
+    <section class="library">
+      <h2 id="library-title"></h2>
+      <p class="note" id="library-empty" hidden></p>
+      <div class="grid" id="library-grid"></div>
+    </section>
   </main>
   <script>
     const I18N = {
@@ -99,6 +106,11 @@
         empty: "没有匹配。换一种说法，或者先上传一张。",
         copy: "复制链接",
         copied: "已复制",
+        libraryTitle: "本地图库",
+        libraryEmpty: "还没有上传。入库之后会出现在这里，起步包不在这个列表里。",
+        delete: "删除",
+        confirmDelete: "确认删除",
+        missing: "文件不在磁盘上",
         lang: "English",
         html: "zh"
       },
@@ -115,12 +127,24 @@
         empty: "No match. Try another scene, or upload an image.",
         copy: "Copy URL",
         copied: "Copied",
+        libraryTitle: "Local library",
+        libraryEmpty: "Nothing uploaded yet. Indexed images show up here. Starter images stay out of this list.",
+        delete: "Delete",
+        confirmDelete: "Confirm delete",
+        missing: "File is missing from disk",
         lang: "中文",
         html: "en"
       }
     };
 
-    const state = { lang: localStorage.getItem("memeframe-lang") || "zh", sources: [], selected: new Set() };
+    const state = {
+      lang: localStorage.getItem("memeframe-lang") || "zh",
+      sources: [],
+      selected: new Set(),
+      searched: false,
+      results: [],
+      library: []
+    };
     const text = (key) => I18N[state.lang][key];
 
     function applyCopy() {
@@ -135,6 +159,8 @@
       document.getElementById("tags").placeholder = copy.tags;
       document.getElementById("upload-btn").textContent = copy.upload;
       document.getElementById("note").textContent = copy.note;
+      document.getElementById("library-title").textContent = copy.libraryTitle;
+      document.getElementById("library-empty").textContent = copy.libraryEmpty;
       document.getElementById("lang").textContent = copy.lang;
     }
 
@@ -173,6 +199,58 @@
       });
     }
 
+    function cardFor(meme, deletable) {
+      const card = document.createElement("article");
+      const img = document.createElement("img");
+      img.src = meme.url;
+      img.alt = titleOf(meme);
+      const body = document.createElement("div");
+      const heading = document.createElement("h2");
+      heading.textContent = titleOf(meme);
+      const caption = document.createElement("p");
+      caption.textContent = captionOf(meme);
+      const meta = document.createElement("p");
+      meta.className = "meta";
+      meta.textContent = deletable
+        ? meme.source_id + (meme.created_at ? " · " + meme.created_at.slice(0, 10) : "")
+        : meme.source_id + " · " + meme.score;
+      if (meme.on_disk === false) {
+        const missing = document.createElement("p");
+        missing.className = "error";
+        missing.textContent = text("missing");
+        body.append(heading, caption, meta, missing);
+      } else {
+        body.append(heading, caption, meta);
+      }
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.textContent = text("copy");
+      copyBtn.addEventListener("click", async () => {
+        const link = absoluteUrl(meme.url);
+        try {
+          await navigator.clipboard.writeText(link);
+          copyBtn.textContent = text("copied");
+          setTimeout(() => { copyBtn.textContent = text("copy"); }, 1200);
+        } catch {
+          copyBtn.textContent = link;
+        }
+      });
+      actions.appendChild(copyBtn);
+      if (deletable) {
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "danger";
+        deleteBtn.textContent = text("delete");
+        deleteBtn.addEventListener("click", () => removeLibraryMeme(meme, deleteBtn));
+        actions.appendChild(deleteBtn);
+      }
+      body.append(actions);
+      card.append(img, body);
+      return card;
+    }
+
     function renderMemes(memes) {
       const grid = document.getElementById("grid");
       grid.innerHTML = "";
@@ -183,39 +261,51 @@
         grid.appendChild(empty);
         return;
       }
-      memes.forEach((meme) => {
-        const card = document.createElement("article");
-        const img = document.createElement("img");
-        img.src = meme.url;
-        img.alt = titleOf(meme);
-        const body = document.createElement("div");
-        const heading = document.createElement("h2");
-        heading.textContent = titleOf(meme);
-        const caption = document.createElement("p");
-        caption.textContent = captionOf(meme);
-        const meta = document.createElement("p");
-        meta.className = "meta";
-        meta.textContent = meme.source_id + " · " + meme.score;
-        const actions = document.createElement("div");
-        actions.className = "actions";
-        const copyBtn = document.createElement("button");
-        copyBtn.type = "button";
-        copyBtn.textContent = text("copy");
-        copyBtn.addEventListener("click", async () => {
-          const link = absoluteUrl(meme.url);
-          try {
-            await navigator.clipboard.writeText(link);
-            copyBtn.textContent = text("copied");
-            setTimeout(() => { copyBtn.textContent = text("copy"); }, 1200);
-          } catch {
-            copyBtn.textContent = link;
-          }
-        });
-        actions.appendChild(copyBtn);
-        body.append(heading, caption, meta, actions);
-        card.append(img, body);
-        grid.appendChild(card);
-      });
+      memes.forEach((meme) => grid.appendChild(cardFor(meme, meme.source_id === "library")));
+    }
+
+    function renderLibrary() {
+      const grid = document.getElementById("library-grid");
+      const empty = document.getElementById("library-empty");
+      grid.innerHTML = "";
+      empty.hidden = state.library.length > 0;
+      state.library.forEach((meme) => grid.appendChild(cardFor(meme, true)));
+    }
+
+    async function loadLibrary() {
+      const response = await fetch("/api/library");
+      const payload = await response.json();
+      if (!response.ok) {
+        const error = document.getElementById("error");
+        error.hidden = false;
+        error.textContent = payload.detail || "library failed";
+        return;
+      }
+      state.library = payload.memes || [];
+      renderLibrary();
+    }
+
+    async function removeLibraryMeme(meme, button) {
+      if (button.dataset.armed !== "1") {
+        button.dataset.armed = "1";
+        button.textContent = text("confirmDelete");
+        return;
+      }
+      button.disabled = true;
+      const error = document.getElementById("error");
+      const response = await fetch("/api/library/" + encodeURIComponent(meme.id), { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        error.hidden = false;
+        error.textContent = payload.detail || "delete failed";
+        button.disabled = false;
+        button.dataset.armed = "";
+        button.textContent = text("delete");
+        return;
+      }
+      error.hidden = true;
+      await loadLibrary();
+      await runSearch(document.getElementById("q").value);
     }
 
     async function runSearch(query) {
@@ -234,14 +324,17 @@
         error.hidden = false;
         error.textContent = JSON.stringify(payload.errors);
       }
-      renderMemes(payload.memes || []);
+      state.searched = true;
+      state.results = payload.memes || [];
+      renderMemes(state.results);
     }
 
     document.getElementById("lang").addEventListener("click", () => {
       state.lang = state.lang === "zh" ? "en" : "zh";
       localStorage.setItem("memeframe-lang", state.lang);
       applyCopy();
-      runSearch(document.getElementById("q").value);
+      if (state.searched) renderMemes(state.results);
+      renderLibrary();
     });
 
     document.getElementById("search-form").addEventListener("submit", (event) => {
@@ -265,10 +358,12 @@
         return;
       }
       document.getElementById("q").value = payload.title || "";
+      await loadLibrary();
       runSearch(payload.title || "");
     });
 
     applyCopy();
+    loadLibrary();
     fetch("/api/sources").then((response) => response.json()).then((payload) => {
       state.sources = payload.sources || [];
       renderSources();

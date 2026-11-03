@@ -11,8 +11,8 @@
 - `library`：你上传的图。文件、一句描述、一条文本向量存在一起。
 - `starter`：六张原创占位场景，中英都有，空库也能搜。
 - `http`：远程 JSON 适配器。没填地址就保持关闭。
-- 网页可以在中文和 English 之间切换。
-- MCP 工具：`search_meme`、`list_sources`、`upload_meme`。
+- 网页可以在中文和 English 之间切换，也能列出本地图库并删除一张上传。
+- MCP 工具：`search_meme`、`list_sources`、`upload_meme`、`list_library`、`delete_meme`。
 - 可选的查询改写。只有 `MEMEFRAME_AGENT=1` 并且填了 API key 才会打开。
 
 斗图啦、搜狗表情、抖音这类站点的爬虫没有放进来。它们依赖非官方页面、Cookie 和防盗链代理，而且很容易坏。真要接，就实现一个 `Source`。
@@ -55,6 +55,8 @@ memeframe serve
 memeframe search 画饼
 memeframe sources
 memeframe upload .\some-image.png --title "无语的猫" --title-en "Speechless cat" --tags "猫,cat"
+memeframe library
+memeframe delete <id>
 memeframe reindex
 python -m unittest discover -s tests -v
 ```
@@ -69,6 +71,14 @@ $env:MEMEFRAME_CAPTION_MODEL = "qwen-vl-plus"
 
 也可以把 `.env.example` 复制成 `.env`。已经存在的环境变量优先。
 
+## 图库
+
+`memeframe library` 按时间从新到旧打印已上传的图。`memeframe delete <id>` 会删掉这一行、它的向量，以及 `MEMEFRAME_HOME/library` 里的文件。网页上的列表是同一批记录。删除要点第二次才真正去掉。起步包不在这个库里，所以删不掉。
+
+`GET /api/library` 返回 `{"memes": [...]}`，每条带 `on_disk`。`DELETE /api/library/{id}` 在 id 不存在时返回 404。
+
+MCP 的 `list_library` 和 `delete_meme` 走同一组函数。`examples/mock_http_source.py` 只是给 `http` 源用的本地 JSON 服务。先运行它，再设 `MEMEFRAME_HTTP_SOURCE_URL=http://127.0.0.1:8765/search`，然后 `memeframe search 猫 --sources http`。它不会写入图库。
+
 ## MCP
 
 ```powershell
@@ -77,7 +87,7 @@ python -m memeframe.mcp_server
 
 Cursor 的配置在 `examples/mcp.json`。如果全局 Python 没装这个包，把 `command` 指到虚拟环境里的 Python。
 
-`search_meme` 只读索引。会调用描述模型的只有 `upload_meme`。
+`search_meme` 和 `list_library` 只读索引。`delete_meme` 删掉一张上传。会调用描述模型的只有 `upload_meme`。
 
 ## 加一个数据源
 

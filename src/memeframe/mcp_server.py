@@ -55,6 +55,23 @@ def build_mcp():
             return json.dumps({"error": str(exc)}, ensure_ascii=False)
         return json.dumps(meme.to_dict(), ensure_ascii=False, indent=2)
 
+    @mcp.tool()
+    def list_library() -> str:
+        """List memes in the local upload library. 列出本地图库。"""
+        from memeframe.library import list_library as _list
+
+        return json.dumps([meme.to_dict() for meme in _list(ctx)], ensure_ascii=False, indent=2)
+
+    @mcp.tool()
+    def delete_meme(meme_id: str) -> str:
+        """Delete one meme from the local library by id. 按 ID 删除本地图库中的一张图。"""
+        from memeframe.library import delete_library_meme
+
+        meme = delete_library_meme(ctx, meme_id)
+        if meme is None:
+            return json.dumps({"error": "meme not found"}, ensure_ascii=False)
+        return json.dumps({"ok": True, "id": meme.id}, ensure_ascii=False)
+
     return mcp
 
 

@@ -11,8 +11,8 @@ Search itself stays cheap. A query does not call a vision model or an embedding 
 - `library` — images you upload. A caption and one text embedding are stored with the file.
 - `starter` — six original placeholder scenes, in Chinese and English, so search works on an empty library.
 - `http` — a remote JSON adapter. It stays disabled until you set a URL.
-- Web UI with a Chinese / English switch.
-- MCP tools: `search_meme`, `list_sources`, `upload_meme`.
+- Web UI with a Chinese / English switch, plus a library list that can delete an upload.
+- MCP tools: `search_meme`, `list_sources`, `upload_meme`, `list_library`, `delete_meme`.
 - Optional query rewrite. Off unless `MEMEFRAME_AGENT=1` and an API key are both set.
 
 Live scrapers for sites such as 斗图啦, 搜狗表情, or 抖音 are not included. Those adapters depend on unofficial pages, cookies, and hotlink proxies, and they break. The `Source` class is the extension point if you still want one.
@@ -55,6 +55,8 @@ Open `http://127.0.0.1:8000`. Try `画饼` or `speechless cat`.
 memeframe search 画饼
 memeframe sources
 memeframe upload .\some-image.png --title "无语的猫" --title-en "Speechless cat" --tags "猫,cat"
+memeframe library
+memeframe delete <id>
 memeframe reindex
 python -m unittest discover -s tests -v
 ```
@@ -69,6 +71,14 @@ $env:MEMEFRAME_CAPTION_MODEL = "qwen-vl-plus"
 
 Copy `.env.example` to `.env` if you would rather not export variables. Existing environment variables win.
 
+## Library
+
+`memeframe library` prints uploads, newest first. `memeframe delete <id>` removes that row, its embedding, and the file under `MEMEFRAME_HOME/library`. The web page lists the same records. Delete asks for a second click before it removes anything. Starter images are not stored here, so they cannot be deleted.
+
+`GET /api/library` returns `{"memes": [...]}`. Each meme includes `on_disk`. `DELETE /api/library/{id}` returns 404 when that id is absent.
+
+`list_library` and `delete_meme` on MCP call the same helpers. `examples/mock_http_source.py` is only a local JSON server for the `http` source. Run it, set `MEMEFRAME_HTTP_SOURCE_URL=http://127.0.0.1:8765/search`, then search with `--sources http`. It does not write into the library.
+
 ## MCP
 
 ```powershell
@@ -77,7 +87,7 @@ python -m memeframe.mcp_server
 
 Cursor config lives in `examples/mcp.json`. Point `command` at the virtualenv Python if the global one does not have this package.
 
-`search_meme` reads the index. `upload_meme` is the only tool that can call a caption model.
+`search_meme` and `list_library` read the index. `delete_meme` removes one upload. `upload_meme` is the only tool that can call a caption model.
 
 ## Add a source
 

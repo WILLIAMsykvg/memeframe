@@ -52,6 +52,8 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         with self._lock:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA busy_timeout=5000")
             self.conn.executescript(SCHEMA)
             self.conn.commit()
 
@@ -114,10 +116,32 @@ class Store:
             row = self.conn.execute("SELECT * FROM memes WHERE sha256 = ?", (digest,)).fetchone()
         return _row_to_meme(row) if row else None
 
+    def get_by_id(self, meme_id: str) -> Meme | None:
+        with self._lock:
+            row = self.conn.execute("SELECT * FROM memes WHERE id = ?", (meme_id,)).fetchone()
+        return _row_to_meme(row) if row else None
+
     def all_memes(self) -> list[Meme]:
         with self._lock:
-            rows = self.conn.execute("SELECT * FROM memes").fetchall()
+            rows = self.conn.execute(
+                "SELECT * FROM memes ORDER BY created_at DESC"
+            ).fetchall()
         return [_row_to_meme(row) for row in rows]
+
+    def delete(self, meme_id: str) -> Meme | None:
+        meme = self.get_by_id(meme_id)
+        if meme is None:
+            return None
+        with self._lock:
+            try:
+                self.conn.execute("BEGIN")
+                self.conn.execute("DELETE FROM embeddings WHERE meme_id = ?", (meme_id,))
+                self.conn.execute("DELETE FROM memes WHERE id = ?", (meme_id,))
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+        return meme
 
     def search(self, query: str, embedding: Embedding | None, limit: int, hash_model: bool) -> list[Meme]:
         with self._lock:

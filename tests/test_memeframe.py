@@ -1,7 +1,11 @@
+import json
 import os
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime
+from io import StringIO
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -10,7 +14,8 @@ from memeframe.api import INDEX_PATH, create_app
 from memeframe.bootstrap import build_context
 from memeframe.config import Settings
 from memeframe.ingest import ingest_bytes
-from memeframe.models import Meme, SearchOptions
+from memeframe.library import delete_library_meme, library_file_exists, list_library
+from memeframe.models import Embedding, Meme, SearchOptions
 from memeframe.providers import HashEmbedder, clean_rewrite, parse_caption_payload, rewrite_query
 from memeframe.rank import text_score
 from memeframe.search import apply_proxy, search_memes
@@ -223,8 +228,104 @@ class MemeframeTest(unittest.TestCase):
             svg = client.get("/media/starter/starter-pie.svg")
             self.assertEqual(svg.status_code, 200)
             self.assertIn("画饼", svg.text)
+            self.assertIn('id="library-title"', page.text)
+            self.assertIn("本地图库", page.text)
+            self.assertIn("Local library", page.text)
+            self.assertIn("确认删除", page.text)
+            self.assertIn("Confirm delete", page.text)
+            uploaded = client.post(
+                "/api/upload",
+                files={"file": ("cat.svg", b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml")},
+                data={"title": "无语的猫", "title_en": "Speechless cat", "tags": "猫"},
+            )
+            self.assertEqual(uploaded.status_code, 200)
+            meme_id = uploaded.json()["id"]
+            listed = client.get("/api/library")
+            self.assertEqual(listed.status_code, 200)
+            self.assertEqual(listed.json()["memes"][0]["id"], meme_id)
+            self.assertTrue(listed.json()["memes"][0]["on_disk"])
+            removed = client.delete(f"/api/library/{meme_id}")
+            self.assertEqual(removed.status_code, 200)
+            self.assertEqual(removed.json()["id"], meme_id)
+            self.assertEqual(client.get("/api/library").json()["memes"], [])
+            missing = client.delete(f"/api/library/{meme_id}")
+            self.assertEqual(missing.status_code, 404)
+            starter = client.delete("/api/library/starter-pie")
+            self.assertEqual(starter.status_code, 404)
         finally:
             app.state.ctx.store.close()
+
+    def test_library_orders_newest_first_and_drops_file_and_embedding(self) -> None:
+        mode = self.ctx.store.conn.execute("PRAGMA journal_mode").fetchone()[0]
+        self.assertEqual(str(mode).lower(), "wal")
+        embedding = Embedding(vector=[1.0, 0.0], model="hash-ngram-v1")
+        older = Meme(
+            id="old",
+            title="旧",
+            url="/media/library/old.svg",
+            source_id="library",
+            sha256="a" * 64,
+            format="svg",
+            filename="old.svg",
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+        newer = Meme(
+            id="new",
+            title="新",
+            url="/media/library/new.svg",
+            source_id="library",
+            sha256="b" * 64,
+            format="svg",
+            filename="new.svg",
+            created_at="2026-02-01T00:00:00+00:00",
+        )
+        library_dir = Path(self.tmp.name) / "library"
+        library_dir.mkdir(parents=True, exist_ok=True)
+        (library_dir / "old.svg").write_text("<svg></svg>", encoding="utf-8")
+        (library_dir / "new.svg").write_text("<svg></svg>", encoding="utf-8")
+        self.ctx.store.insert(older, embedding)
+        self.ctx.store.insert(newer, embedding)
+        self.assertEqual([meme.id for meme in list_library(self.ctx)], ["new", "old"])
+        self.assertTrue(library_file_exists(self.ctx, newer))
+        self.assertEqual(delete_library_meme(self.ctx, "new").id, "new")
+        self.assertIsNone(self.ctx.store.get_by_id("new"))
+        self.assertIsNone(
+            self.ctx.store.conn.execute("SELECT 1 FROM embeddings WHERE meme_id = ?", ("new",)).fetchone()
+        )
+        self.assertFalse((library_dir / "new.svg").exists())
+        self.assertIsNone(delete_library_meme(self.ctx, "missing"))
+        (library_dir / "old.svg").unlink()
+        self.assertFalse(library_file_exists(self.ctx, older))
+        self.assertEqual(delete_library_meme(self.ctx, "old").id, "old")
+
+    def test_starter_timestamps_stay_two_digits(self) -> None:
+        for index, meme in enumerate(starter_memes()):
+            self.assertRegex(meme.created_at, rf"T00:00:{index:02d}\+00:00$")
+            parsed = datetime.fromisoformat(meme.created_at)
+            self.assertEqual(parsed.second, index)
+
+    def test_cli_lists_and_deletes_upload(self) -> None:
+        from memeframe.cli import main
+
+        payload = b"<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>"
+        meme = ingest_bytes(self.ctx, payload, "pie.svg", "画饼", "Pie", ["饼"])
+        listed = StringIO()
+        with redirect_stdout(listed):
+            main(["library"])
+        rows = json.loads(listed.getvalue())
+        self.assertEqual(rows[0]["id"], meme.id)
+        deleted = StringIO()
+        with redirect_stdout(deleted):
+            main(["delete", meme.id])
+        self.assertEqual(json.loads(deleted.getvalue())["id"], meme.id)
+        self.assertFalse((Path(self.tmp.name) / "library" / meme.filename).is_file())
+        self.assertIsNone(self.ctx.store.get_by_id(meme.id))
+        errors = StringIO()
+        with redirect_stderr(errors):
+            with self.assertRaises(SystemExit) as raised:
+                main(["delete", meme.id])
+        self.assertEqual(raised.exception.code, 1)
+        self.assertIn("找不到", errors.getvalue())
 
     def test_mcp_server_builds(self) -> None:
         from memeframe.mcp_server import build_mcp
@@ -232,6 +333,13 @@ class MemeframeTest(unittest.TestCase):
         server = build_mcp()
         try:
             self.assertEqual(getattr(server, "name", "memeframe"), "memeframe")
+            manager = getattr(server, "_tool_manager", None)
+            if manager is not None and hasattr(manager, "list_tools"):
+                names = {tool.name for tool in manager.list_tools()}
+            else:
+                names = set(getattr(server, "_tools", {}))
+            self.assertIn("list_library", names)
+            self.assertIn("delete_meme", names)
         finally:
             server.memeframe_context.store.close()
 
